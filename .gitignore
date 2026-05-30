@@ -1,3 +1,11 @@
-# Godot 4+ specific ignores
+# Godot 4 — generated files, never commit these
 .godot/
+
+# Android export
 /android/
+
+# macOS metadata
+.DS_Store
+
+# Windows thumbnail cache
+Thumbs.db

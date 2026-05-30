@@ -1,60 +1,90 @@
 ## GridManager.gd
-## Manages the grid: tile states, highlighting, and coordinate conversions.
+## Manages the grid: tile states, highlighting, coordinate conversions, and terrain.
 ## Attach to a Node2D called "GridManager" in your main scene.
 
 extends Node2D
 
-const TILE_SIZE := 64          # pixels per tile
-const GRID_COLS := 10
-const GRID_ROWS := 8
+const TILE_SIZE  : int = 64
+const GRID_COLS  : int = 10
+const GRID_ROWS  : int = 8
 
-# Tile state flags
 enum TileState { NORMAL, MOVE_RANGE, ATTACK_RANGE, SELECTED }
 
-var tile_states := {}           # Vector2i -> TileState
-var tile_colors := {
-	TileState.NORMAL:       Color(0.20, 0.22, 0.28, 1.0),
-	TileState.MOVE_RANGE:   Color(0.25, 0.55, 0.90, 0.55),
-	TileState.ATTACK_RANGE: Color(0.90, 0.30, 0.30, 0.55),
-	TileState.SELECTED:     Color(1.00, 0.85, 0.20, 0.80),
+var tile_states : Dictionary = {}
+
+var tile_colors : Dictionary = {
+	TileState.NORMAL:       Color(0.18, 0.20, 0.26, 1.00),
+	TileState.MOVE_RANGE:   Color(0.20, 0.50, 0.95, 0.60),
+	TileState.ATTACK_RANGE: Color(0.95, 0.25, 0.25, 0.60),
+	TileState.SELECTED:     Color(1.00, 0.88, 0.15, 0.85),
 }
 
+const BORDER_COLOR        := Color(0.50, 0.52, 0.60, 0.45)
+const BORDER_NORMAL_COLOR := Color(0.30, 0.32, 0.40, 0.35)
+
+# ------------------------------------------------------------------ #
+#  Initialisation                                                      #
+# ------------------------------------------------------------------ #
 func _ready() -> void:
 	_init_grid()
 
 func _init_grid() -> void:
+	tile_states.clear()
 	for row in GRID_ROWS:
 		for col in GRID_COLS:
 			tile_states[Vector2i(col, row)] = TileState.NORMAL
 
-# Convert grid coordinates to world position (centre of tile)
+# ------------------------------------------------------------------ #
+#  Coordinate helpers                                                  #
+# ------------------------------------------------------------------ #
 func grid_to_world(grid_pos: Vector2i) -> Vector2:
-	return Vector2(grid_pos.x * TILE_SIZE + TILE_SIZE / 2,
-				   grid_pos.y * TILE_SIZE + TILE_SIZE / 2)
+	return Vector2(
+		grid_pos.x * TILE_SIZE + TILE_SIZE / 2,
+		grid_pos.y * TILE_SIZE + TILE_SIZE / 2
+	)
 
-# Convert world position to grid coordinates
 func world_to_grid(world_pos: Vector2) -> Vector2i:
-	return Vector2i(int(world_pos.x / TILE_SIZE), int(world_pos.y / TILE_SIZE))
+	return Vector2i(
+		int(world_pos.x / TILE_SIZE),
+		int(world_pos.y / TILE_SIZE)
+	)
+
+# FIX 1: Use the viewport mouse position directly — no Node2D transform involved.
+func get_mouse_grid_pos() -> Vector2i:
+	return world_to_grid(get_viewport().get_mouse_position())
 
 func is_valid(grid_pos: Vector2i) -> bool:
 	return grid_pos.x >= 0 and grid_pos.x < GRID_COLS \
 		and grid_pos.y >= 0 and grid_pos.y < GRID_ROWS
 
-# Highlight all tiles reachable within move_range steps (BFS, ignores enemies)
-func highlight_move_range(origin: Vector2i, move_range: int, blocked: Array) -> Array:
-	clear_highlights()
-	var reachable: Array = []
-	var visited := {origin: 0}
-	var queue := [origin]
+func get_neighbors(pos: Vector2i) -> Array:
+	var dirs := [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]
+	var result : Array = []
+	for d in dirs:
+		var n : Vector2i = pos + d
+		if is_valid(n):
+			result.append(n)
+	return result
 
-	while queue.size() > 0:
-		var current: Vector2i = queue.pop_front()
-		var steps: int = visited[current]
-		if steps == 0 and current != origin:
-			pass  # origin itself never highlighted as move target
+# ------------------------------------------------------------------ #
+#  Highlighting                                                        #
+# ------------------------------------------------------------------ #
+# FIX 2: Do NOT call clear_highlights() inside here.
+# GameManager controls when to clear — calling it here wiped the
+# selected-tile highlight that was set just before this call.
+func highlight_move_range(origin: Vector2i, move_range: int, blocked: Array) -> Array:
+	var reachable : Array = []
+	var visited   : Dictionary = { origin: 0 }
+	var queue     : Array = [origin]
+
+	while not queue.is_empty():
+		var current : Vector2i = queue.pop_front()
+		var steps   : int      = visited[current]
+
 		if current != origin:
 			tile_states[current] = TileState.MOVE_RANGE
 			reachable.append(current)
+
 		if steps < move_range:
 			for neighbor in get_neighbors(current):
 				if neighbor not in visited and neighbor not in blocked:
@@ -64,14 +94,14 @@ func highlight_move_range(origin: Vector2i, move_range: int, blocked: Array) -> 
 	queue_redraw()
 	return reachable
 
-# Highlight all tiles within attack_range (Manhattan distance ring)
 func highlight_attack_range(origin: Vector2i, attack_range: int, move_tiles: Array) -> void:
 	for row in GRID_ROWS:
 		for col in GRID_COLS:
-			var pos := Vector2i(col, row)
-			var dist: int = abs(pos.x - origin.x) + abs(pos.y - origin.y)
+			var pos  : Vector2i = Vector2i(col, row)
+			var dist : int      = abs(pos.x - origin.x) + abs(pos.y - origin.y)
 			if dist <= attack_range and dist > 0 and pos not in move_tiles:
-				tile_states[pos] = TileState.ATTACK_RANGE
+				if tile_states.get(pos, TileState.NORMAL) == TileState.NORMAL:
+					tile_states[pos] = TileState.ATTACK_RANGE
 	queue_redraw()
 
 func highlight_selected(grid_pos: Vector2i) -> void:
@@ -83,21 +113,20 @@ func clear_highlights() -> void:
 		tile_states[key] = TileState.NORMAL
 	queue_redraw()
 
-func get_neighbors(pos: Vector2i) -> Array:
-	var dirs := [Vector2i(1,0), Vector2i(-1,0), Vector2i(0,1), Vector2i(0,-1)]
-	var result := []
-	for d in dirs:
-		var n: Vector2i = pos + d
-		if is_valid(n):
-			result.append(n)
-	return result
-
-# Draw grid tiles
+# ------------------------------------------------------------------ #
+#  Rendering                                                           #
+# ------------------------------------------------------------------ #
 func _draw() -> void:
 	for row in GRID_ROWS:
 		for col in GRID_COLS:
-			var pos: Vector2i = Vector2i(col, row)
-			var state: int = tile_states.get(pos, TileState.NORMAL)
-			var rect: Rect2 = Rect2(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+			var pos   : Vector2i = Vector2i(col, row)
+			var state : int      = tile_states.get(pos, TileState.NORMAL)
+			var rect  : Rect2    = Rect2(col * TILE_SIZE, row * TILE_SIZE, TILE_SIZE, TILE_SIZE)
+
 			draw_rect(rect, tile_colors[state])
-			draw_rect(rect, Color(0.5, 0.5, 0.6, 0.4), false, 1.0)   # border
+
+			if state == TileState.NORMAL and (col + row) % 2 == 0:
+				draw_rect(rect, Color(1.0, 1.0, 1.0, 0.025))
+
+			var border_col : Color = BORDER_COLOR if state != TileState.NORMAL else BORDER_NORMAL_COLOR
+			draw_rect(rect, border_col, false, 1.0)
