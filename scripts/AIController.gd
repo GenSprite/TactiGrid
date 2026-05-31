@@ -40,6 +40,7 @@ func _process_unit(enemy: Node2D, player_units: Array) -> void:
 			best_tile = tile
 
 	if best_tile != enemy.grid_pos:
+		enemy.play_move()
 		await _tween_move(enemy, best_tile)
 
 	# ── Attack phase ──
@@ -50,6 +51,7 @@ func _process_unit(enemy: Node2D, player_units: Array) -> void:
 	if target != null and is_instance_valid(target):
 		var dist : int = _manhattan(enemy.grid_pos, target.grid_pos)
 		if dist <= enemy.attack_range:
+			enemy.play_attack()
 			target.take_damage(enemy.attack_damage)
 			await _flash_attack(enemy)
 

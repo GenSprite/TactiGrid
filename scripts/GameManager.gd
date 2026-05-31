@@ -32,26 +32,43 @@ func _ready() -> void:
 # ------------------------------------------------------------------ #
 func _spawn_units() -> void:
 	var player_data : Array = [
-	{
-		 pos=Vector2i(1,2), unit_name="Soldier", hp=30, mv=3, atk=1, dmg=10,color=Color(0.20,0.60,1.00),
-		texture=preload("res://assets/sprites/Pawn/Blue/Pawn_Blue.png")
-	},
-	{
-		 pos=Vector2i(1,4), unit_name="Archer", hp=20, mv=2, atk=2, dmg=8,color=Color(0.30,0.90,0.40),
-		texture=preload("res://assets/sprites/Archer/Blue/Archer_Blue.png")
-	},
-	{
-		pos=Vector2i(1,6), unit_name="Knight", hp=50, mv=2, atk=1, dmg=15, color=Color(0.874, 0.718, 0.967, 1.0),
-		texture=preload("res://assets/sprites/Warrior/Blue/Warrior_Blue.png")
-	},
-]
+		{
+			pos=Vector2i(1,2), unit_name="Soldier", hp=30, mv=3, atk=1, dmg=10,
+			color=Color(0.20, 0.60, 1.00),
+			texture=preload("res://assets/sprites/Pawn/Blue/Pawn_Blue.png")
+		},
+		{
+			pos=Vector2i(1,4), unit_name="Archer", hp=20, mv=2, atk=2, dmg=8,
+			color=Color(0.30, 0.90, 0.40),
+			texture=preload("res://assets/sprites/Archer/Blue/Archer_Blue.png")
+		},
+		{
+			pos=Vector2i(1,6), unit_name="Knight", hp=50, mv=2, atk=1, dmg=15,
+			color=Color(0.874, 0.718, 0.967, 1.0),
+			texture=preload("res://assets/sprites/Warrior/Blue/Warrior_Blue.png")
+		},
+	]
 	for d in player_data:
 		player_units.append(_create_unit(d, true))
 
+	# FIX 1: enemy entries now include texture and color keys,
+	# matching the structure _create_unit expects.
 	var enemy_data : Array = [
-		{pos=Vector2i(8,2), unit_name="Grunt",  hp=25, mv=3, atk=1, dmg=8,  color=Color(1.00,0.30,0.30)},
-		{pos=Vector2i(8,4), unit_name="Brute",  hp=40, mv=2, atk=1, dmg=12, color=Color(0.90,0.20,0.20)},
-		{pos=Vector2i(8,6), unit_name="Sniper", hp=20, mv=2, atk=3, dmg=10, color=Color(0.80,0.10,0.40)},
+		{
+			pos=Vector2i(8,2), unit_name="Grunt",  hp=25, mv=3, atk=1, dmg=8,
+			color=Color(1.00, 0.30, 0.30),
+			texture=preload("res://assets/sprites/Pawn/Red/Pawn_Red.png")
+		},
+		{
+			pos=Vector2i(8,4), unit_name="Brute",  hp=40, mv=2, atk=1, dmg=12,
+			color=Color(0.90, 0.20, 0.20),
+			texture=preload("res://assets/sprites/Warrior/Red/Warrior_Red.png")
+		},
+		{
+			pos=Vector2i(8,6), unit_name="Sniper", hp=20, mv=2, atk=3, dmg=10,
+			color=Color(0.80, 0.10, 0.40),
+			texture=preload("res://assets/sprites/Archer/Red/Archer_Red.png")
+		},
 	]
 	for d in enemy_data:
 		enemy_units.append(_create_unit(d, false))
@@ -60,7 +77,11 @@ func _create_unit(data: Dictionary, is_player: bool) -> Node2D:
 	var unit_scene : PackedScene = preload("res://scenes/Unit.tscn")
 	var u : Node2D = unit_scene.instantiate()
 	u.unit_name      = data.unit_name
-	u.unit_texture  = data.texture 
+	# FIX 2: use data.get() so a missing key returns null instead of crashing.
+	u.unit_texture   = data.get("texture", null)
+	# FIX 3: unit_color was never assigned; missing it breaks the hit-flash tween
+	# (enemies would flash back to the default blue instead of their own colour).
+	u.unit_color     = data.get("color", Color.WHITE)
 	u.max_hp         = data.hp
 	u.move_range     = data.mv
 	u.attack_range   = data.atk
@@ -100,8 +121,6 @@ func _handle_player_click(clicked: Vector2i) -> void:
 			return
 
 		# --- Try to ATTACK ---
-		# FIX 3: check attack_tiles (tracked separately) rather than
-		# recomputing distance, so it's consistent with what's shown.
 		if clicked in attack_tiles and not selected_unit.has_acted:
 			var target : Node2D = _unit_at(clicked, false)
 			if target != null:
@@ -131,9 +150,6 @@ func _handle_player_click(clicked: Vector2i) -> void:
 #  Selection                                                           #
 # ------------------------------------------------------------------ #
 func _select_unit(unit: Node2D) -> void:
-	# FIX 2: clear first, THEN set selected highlight, THEN BFS.
-	# Old order (highlight_selected → highlight_move_range which called
-	# clear_highlights) erased the yellow tile immediately.
 	grid_manager.clear_highlights()
 	ui_manager.clear_unit_info()
 
@@ -151,7 +167,7 @@ func _select_unit(unit: Node2D) -> void:
 			unit.grid_pos, unit.move_range, blocked
 		)
 
-	# Red attack tiles — track them so the click handler can compare
+	# Red attack tiles
 	if not unit.has_acted:
 		grid_manager.highlight_attack_range(
 			unit.grid_pos, unit.attack_range, move_tiles
@@ -171,15 +187,14 @@ func _deselect() -> void:
 #  Move / Attack                                                       #
 # ------------------------------------------------------------------ #
 func _move_selected_unit(dest: Vector2i) -> void:
+	selected_unit.play_move() 
 	selected_unit.grid_pos  = dest
 	selected_unit.position  = grid_manager.grid_to_world(dest)
 	selected_unit.has_moved = true
 	selected_unit._refresh_visuals()
 
-	# FIX 4: after moving, rebuild highlights from the NEW position
-	# so red tiles are correct and the player can still attack.
 	grid_manager.clear_highlights()
-	move_tiles   = []   # can't move again
+	move_tiles   = []
 	attack_tiles = []
 
 	grid_manager.highlight_selected(selected_unit.grid_pos)
@@ -195,6 +210,7 @@ func _move_selected_unit(dest: Vector2i) -> void:
 	_check_end_player_turn()
 
 func _attack(attacker: Node2D, target: Node2D) -> void:
+	attacker.play_attack() 
 	target.take_damage(attacker.attack_damage)
 	attacker.has_acted = true
 	attacker.has_moved = true
@@ -273,7 +289,6 @@ func _occupied_tiles_except(exclude: Node2D) -> Array:
 			tiles.append(u.grid_pos)
 	return tiles
 
-# Build the list of tiles that are within attack range (mirrors highlight_attack_range logic)
 func _collect_attack_tiles(origin: Vector2i, attack_range: int, exclude_tiles: Array) -> Array:
 	var result : Array = []
 	for row in grid_manager.GRID_ROWS:
