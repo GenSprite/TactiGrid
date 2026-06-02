@@ -1,139 +1,325 @@
-## Unit.gd — with sprite sheet animation support
+extends CharacterBody2D
 
-extends Node2D
+# --- Unit Identity ---
+@export var unit_name: String = "Unit"
+@export var team: String = "blue"
+@export var unit_type: String = "warrior"  # "warrior", "archer", "lancer"
 
-# ── Exported Stats ────────────────────────────────────────────────────
-@export var unit_name     : String    = "Unit"
-@export var max_hp        : int       = 30
-@export var move_range    : int       = 3
-@export var attack_range  : int       = 1
-@export var attack_damage : int       = 10
-@export var is_player_unit: bool      = true
-@export var unit_color    : Color     = Color(0.20, 0.60, 1.00)
-@export var unit_texture  : Texture2D = null
+# --- Stats ---
+@export var max_hp: int = 100
+@export var current_hp: int = 100
+@export var move_range: int = 3
+@export var attack_range: int = 1
+@export var attack_damage: int = 25
 
-# ── Sprite Sheet Layout — SET THESE TO MATCH YOUR SHEET ──────────────
-@export var frame_width   : int = 48   # px per frame
-@export var frame_height  : int = 48
-@export var sheet_columns : int = 4    # how many columns in the sheet
+# --- Grid Position ---
+var grid_pos: Vector2i = Vector2i(0, 0)
 
-# Maps animation name → [start_frame, frame_count, fps, loop]
-@export var anim_config : Dictionary = {
-	"idle":   [0,  4, 8,  true],
-	"walk":   [4,  4, 10, true],
-	"attack": [8,  3, 12, false],
-	"die":    [11, 2, 6,  false],
-}
+# --- State ---
+var has_moved: bool = false
+var has_attacked: bool = false
+var is_alive: bool = true
+var facing: String = "right"  # "right", "up", "down"
 
-# ── Runtime State ─────────────────────────────────────────────────────
-var current_hp : int      = 0
-var grid_pos   : Vector2i = Vector2i.ZERO
-var has_moved  : bool     = false
-var has_acted  : bool     = false
+# --- Node References ---
+@onready var anim_sprite: AnimatedSprite2D = $AnimatedSprite2D
+@onready var health_bar: ProgressBar = $ProgressBar
 
-var grid_manager : Node2D = null
-var game_manager : Node   = null
+const TILE_SIZE = 128
 
-# ── Child references ──────────────────────────────────────────────────
-@onready var sprite_rect : AnimatedSprite2D = $SpriteRect
-@onready var hp_label    : Label            = $HPLabel
+func _ready():
+	print("UNIT READY")
 
-# ── Lifecycle ─────────────────────────────────────────────────────────
-func _ready() -> void:
+	apply_unit_stats()
+	setup_animations()
+
+	health_bar.max_value = max_hp
+	health_bar.value = current_hp
+
+	position = Vector2(
+	grid_pos.x * TILE_SIZE + TILE_SIZE / 2,
+	grid_pos.y * TILE_SIZE + TILE_SIZE / 2
+)
+
+
+
+# -------------------------------------------------------
+# ANIMATION SETUP
+# -------------------------------------------------------
+
+func setup_animations():
+	var frames = SpriteFrames.new()
+	anim_sprite.sprite_frames = frames
+
+	match unit_type:
+		"warrior":
+			_setup_warrior(frames)
+		"archer":
+			_setup_archer(frames)
+		"lancer":
+			_setup_lancer(frames)
+
+	# Dead animation is shared across all units
+	_add_dead_animation(frames)
+
+# --- WARRIOR ---
+# Spritesheet: 192x192, 6 cols x 8 rows, frame size = 32x24
+# Row layout (adjust row indices to match your actual sheet):
+# Row 0: idle, Row 1: walk, Row 2: attack_right
+# Row 3: attack_up, Row 4: attack_down, Row 5: dead (if any)
+func _setup_warrior(frames: SpriteFrames):
+	var tex = load("res://assets/Warrior/%s/Warrior_%s.png" % [team.capitalize(), team.capitalize()])
+	if tex == null:
+		print("ERROR: Warrior texture not found")
+		return
+
+	var fw = 192
+	var fh = 192  # frame height (192 / 8)
+
+	# idle — row 0, all 6 frames
+	_add_animation_from_row(frames, "idle", tex, 0, 6, fw, fh, true, 6.0)
+	# walk — row 1, all 6 frames
+	_add_animation_from_row(frames, "walk", tex, 0, 6, fw, fh, true, 12.0)
+	# attack_right — row 2, all 6 frames
+	_add_animation_from_row(frames, "attack_right", tex, 2, 6, fw, fh, false, 10.0)
+	# attack_up — row 3, all 6 frames
+	_add_animation_from_row(frames, "attack_up", tex, 6, 6, fw, fh, false, 10.0)
+	# attack_down — row 4, all 6 frames
+	_add_animation_from_row(frames, "attack_down", tex, 4, 6, fw, fh, false, 10.0)
+	print("Warrior idle frames:",
+	anim_sprite.sprite_frames.get_frame_count("idle"))
+# --- ARCHER ---
+
+# Spritesheet: 192x192, 8 cols x 7 rows, frame size = 24x27
+# Row layout:
+# Row 0: idle, Row 1: walk, Row 2: attack_right
+# Row 3: attack_up, Row 4: attack_down
+	print("Setting up archer")
+func _setup_archer(frames: SpriteFrames):
+	var tex = load("res://assets/Archer/%s/Archer_%s.png" % [team.capitalize(), team.capitalize()])
+	if tex == null:
+		print("ERROR: Archer texture not found")
+		return
+
+	var fw = 192
+	var fh = 192# frame height (192 / 7)
+
+	_add_animation_from_row(frames, "idle", tex, 0, 6, fw, fh, true, 6.0)
+	_add_animation_from_row(frames, "walk", tex, 0, 6, fw, fh, true, 12.0)
+	_add_animation_from_row(frames, "attack_right", tex, 3, 8, fw, fh, false, 10.0)
+	_add_animation_from_row(frames, "attack_up", tex, 2, 8, fw, fh, false, 10.0)
+	_add_animation_from_row(frames, "attack_down", tex, 6, 8, fw, fh, false, 10.0)
+
+# --- LANCER ---
+# Separate PNG per animation, all 1 row
+# Idle:    320x320, 12 frames → frame = ~26x320 (full height)
+# Run:     320x320,  6 frames → frame = ~53x320
+# Attacks: 320x320,  3 frames → frame = ~106x320
+	print("Setting up lancer")
+func _setup_lancer(frames: SpriteFrames):
+	# Idle
+	_add_animation_from_separate(
+		frames, "idle",
+		"res://assets/lancer/Lancer_Idle.png",
+		12, 1, true, 8.0
+	)
+	# Walk
+	_add_animation_from_separate(
+		frames, "walk",
+		"res://assets/lancer/Lancer_Run.png",
+		6, 1, true, 8.0
+	)
+	# Attack Right
+	_add_animation_from_separate(
+		frames, "attack_right",
+		"res://assets/lancer/Lancer_Right_Attack.png",
+		3, 1, false, 10.0
+	)
+	# Attack Up
+	_add_animation_from_separate(
+		frames, "attack_up",
+		"res://assets/lancer/Lancer_Up_Attack.png",
+		3, 1, false, 10.0
+	)
+	# Attack Down
+	_add_animation_from_separate(
+		frames, "attack_down",
+		"res://assets/lancer/Lancer_Down_Attack.png",
+		3, 1, false, 10.0
+	)
+
+# --- DEAD (shared) ---
+func _add_dead_animation(frames: SpriteFrames):
+	var tex = load("res://assets/Dead/Dead.png")
+	if tex == null:
+		print("ERROR: Dead texture not found")
+		return
+	frames.add_animation("dead")
+	frames.set_animation_loop("dead", false)
+	frames.set_animation_speed("dead", 5.0)
+	frames.add_frame("dead", tex, 1.0)
+
+# -------------------------------------------------------
+# HELPERS — slice frames from spritesheets
+# -------------------------------------------------------
+
+# For Warrior/Archer: one big spritesheet, slice by row
+func _add_animation_from_row(
+	frames: SpriteFrames,
+	anim_name: String,
+	tex: Texture2D,
+	row: int,
+	col_count: int,
+	frame_w: int,
+	frame_h: int,
+	loop: bool,
+	speed: float
+):
+	frames.add_animation(anim_name)
+	frames.set_animation_loop(anim_name, loop)
+	frames.set_animation_speed(anim_name, speed)
+
+	for col in col_count:
+		var atlas = AtlasTexture.new()
+		atlas.atlas = tex
+		atlas.region = Rect2(col * frame_w, row * frame_h, frame_w, frame_h)
+		frames.add_frame(anim_name, atlas, 1.0)
+
+# For Lancer: separate PNG per animation, slice horizontally
+func _add_animation_from_separate(
+	frames: SpriteFrames,
+	anim_name: String,
+	path: String,
+	col_count: int,
+	row_count: int,
+	loop: bool,
+	speed: float
+):
+	if not ResourceLoader.exists(path):
+		print("ERROR: Missing lancer texture: ", path)
+		return
+
+	var tex = load(path)
+	var frame_w = int(tex.get_width() / col_count)
+	var frame_h = int(tex.get_height() / row_count)
+
+	frames.add_animation(anim_name)
+	frames.set_animation_loop(anim_name, loop)
+	frames.set_animation_speed(anim_name, speed)
+
+	for col in col_count:
+		var atlas = AtlasTexture.new()
+		atlas.atlas = tex
+		atlas.region = Rect2(col * frame_w, 0, frame_w, frame_h)
+		frames.add_frame(anim_name, atlas, 1.0)
+
+# -------------------------------------------------------
+# PLAY ANIMATIONS
+# -------------------------------------------------------
+
+func play_animation(anim_key: String):
+	print("Trying to play:", anim_key)
+
+	var anim_name: String
+	match anim_key:
+		"idle":
+			anim_name = "idle"
+		"walk":
+			anim_name = "walk"
+		"attack":
+			anim_name = "attack_%s" % facing
+		"dead":
+			anim_name = "dead"
+		_:
+			anim_name = anim_key
+
+	print("Animation resolved to:", anim_name)
+
+	if anim_sprite.sprite_frames and anim_sprite.sprite_frames.has_animation(anim_name):
+		print("Playing:", anim_name)
+		anim_sprite.play(anim_name)
+	else:
+		print("Animation not found:", anim_name)
+
+# -------------------------------------------------------
+# FACING (based on target position)
+# -------------------------------------------------------
+
+func update_facing(target_grid_pos: Vector2i):
+	var diff = target_grid_pos - grid_pos
+	if diff.y < 0:
+		facing = "up"
+	elif diff.y > 0:
+		facing = "down"
+	else:
+		facing = "right"
+
+# -------------------------------------------------------
+# STATS
+# -------------------------------------------------------
+
+func apply_unit_stats():
+	match unit_type:
+		"warrior":
+			max_hp = 120
+			move_range = 3
+			attack_range = 1
+			attack_damage = 35
+		"archer":
+			max_hp = 80
+			move_range = 3
+			attack_range = 3
+			attack_damage = 25
+		"lancer":
+			max_hp = 100
+			move_range = 2
+			attack_range = 2
+			attack_damage = 30
 	current_hp = max_hp
-	if sprite_rect and unit_texture:
-		_build_sprite_frames()
-	_refresh_visuals()
 
-func place_on_grid(pos: Vector2i) -> void:
-	grid_pos = pos
-	position = grid_manager.grid_to_world(pos)
+# -------------------------------------------------------
+# MOVEMENT
+# -------------------------------------------------------
 
-# ── Sprite Sheet Setup ────────────────────────────────────────────────
-func _build_sprite_frames() -> void:
-	var frames := SpriteFrames.new()
+func move_to(new_grid_pos: Vector2i):
+	play_animation("walk")
+	grid_pos = new_grid_pos
+	position = Vector2(
+	grid_pos.x * TILE_SIZE + TILE_SIZE / 2,
+	grid_pos.y * TILE_SIZE + TILE_SIZE / 2
+)
+	has_moved = true
+	play_animation("idle")
 
-	for anim_name in anim_config:
-		var cfg        : Array = anim_config[anim_name]
-		var start      : int   = cfg[0]
-		var count      : int   = cfg[1]
-		var fps        : float = cfg[2]
-		var should_loop: bool  = cfg[3]
+# -------------------------------------------------------
+# COMBAT
+# -------------------------------------------------------
 
-		frames.add_animation(anim_name)
-		frames.set_animation_speed(anim_name, fps)
-		frames.set_animation_loop(anim_name, should_loop)
+func attack_target(target):
+	update_facing(target.grid_pos)
+	play_animation("attack")
+	await anim_sprite.animation_finished
+	target.take_damage(attack_damage)
+	has_attacked = true
+	play_animation("idle")
 
-		for i in range(count):
-			var frame_idx : int = start + i
-			var col       : int = frame_idx % sheet_columns
-			var row       : int = frame_idx / sheet_columns
-
-			var atlas := AtlasTexture.new()
-			atlas.atlas  = unit_texture
-			atlas.region = Rect2(
-				col * frame_width,
-				row * frame_height,
-				frame_width,
-				frame_height
-			)
-			frames.add_frame(anim_name, atlas)
-
-	sprite_rect.sprite_frames = frames
-	sprite_rect.play("idle")
-
-	# After non-looping animations finish, return to idle
-	sprite_rect.animation_finished.connect(_on_animation_finished)
-
-func _on_animation_finished() -> void:
-	var finished_anim : String = sprite_rect.animation
-	if finished_anim in ["attack", "die"]:
-		if current_hp > 0:
-			play_anim("idle")
-
-# ── Animation helpers ─────────────────────────────────────────────────
-func play_anim(anim_name: String) -> void:
-	if sprite_rect and sprite_rect.sprite_frames \
-	   and sprite_rect.sprite_frames.has_animation(anim_name):
-		sprite_rect.play(anim_name)
-
-func play_move() -> void:
-	play_anim("walk")
-
-func play_attack() -> void:
-	play_anim("attack")
-
-func play_idle() -> void:
-	play_anim("idle")
-
-# ── Combat ────────────────────────────────────────────────────────────
-func take_damage(amount: int) -> void:
-	current_hp = max(0, current_hp - amount)
-	_refresh_visuals()
-	if current_hp == 0:
+func take_damage(amount: int):
+	current_hp -= amount
+	current_hp = max(current_hp, 0)
+	health_bar.value = current_hp
+	if current_hp <= 0:
 		die()
 
-func die() -> void:
-	play_anim("die")
-	if game_manager and is_instance_valid(game_manager):
-		game_manager.on_unit_died(self)
-	# Delay queue_free so the death animation can finish
-	await sprite_rect.animation_finished
-	queue_free()
+func die():
+	is_alive = false
+	play_animation("dead")
+	$CollisionShape2D.disabled = true
 
-# ── Turn helpers ──────────────────────────────────────────────────────
-func reset_turn() -> void:
+# -------------------------------------------------------
+# TURN RESET
+# -------------------------------------------------------
+
+func reset_turn():
 	has_moved = false
-	has_acted = false
-	play_idle()
-	_refresh_visuals()
-
-func is_done() -> bool:
-	return has_moved and has_acted
-
-# ── Visuals ───────────────────────────────────────────────────────────
-func _refresh_visuals() -> void:
-	if sprite_rect:
-		sprite_rect.modulate = Color.WHITE if current_hp > 0 else Color(0.4, 0.4, 0.4)
-	if hp_label:
-		hp_label.text = "%d/%d" % [current_hp, max_hp]
+	has_attacked = false
+	

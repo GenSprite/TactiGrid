@@ -8,32 +8,17 @@
 
 config_version=5
 
-[animation]
-
-compatibility/default_parent_skeleton_in_mesh_instance_3d=true
-
 [application]
 
-config/name="TactiGrid"
-config/description="A turn-based tactics game built in Godot 4."
-run/main_scene="uid://b6yoio310dj4k"
+config/name="TACTIGRID"
+run/main_scene="uid://bhbbu7bjfiy03"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
 
-[display]
+[physics]
 
-window/size/viewport_width=704
-window/size/viewport_height=600
-window/stretch/mode="canvas_items"
-
-[input]
-
-end_turn={
-"deadzone": 0.5,
-"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":0,"physical_keycode":69,"key_label":0,"unicode":101,"location":0,"echo":false,"script":null)
-]
-}
+3d/physics_engine="Jolt Physics"
 
 [rendering]
 
-environment/defaults/default_clear_color=Color(0.102, 0.106, 0.141, 1)
+rendering_device/driver.windows="d3d12"
